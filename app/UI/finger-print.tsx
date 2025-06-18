@@ -30,7 +30,7 @@ const ProspectRegistration = () => {
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: new URLSearchParams({
-          Timeout: "1000", // Short timeout for status check
+          Timeout: "1000",
           Quality: "50",
           Licstr: "",
           TemplateFormat: "ISO",
@@ -66,85 +66,64 @@ const ProspectRegistration = () => {
     // Start the continuous listening loop
     listenForFingerprint();
   };
-
-  const stopListening = () => {
-    setIsListening(false);
-    setScanningMessage("");
-  };
-
   const listenForFingerprint = async () => {
-    while (isListening) {
-      try {
-        const response = await fetch("/api/scanner", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: new URLSearchParams({
-            Timeout: "30000", // 30 second timeout for listening
-            Quality: "50",
-            Licstr: "",
-            TemplateFormat: "ISO",
-            ImageWSQRate: "0.75",
-            AutoOn: "1", // Enable auto-capture mode
-          }).toString(),
-        });
+    try {
+      const response = await fetch("/api/scanner", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          Timeout: "10000",
+          Quality: "50",
+          Licstr: "",
+          TemplateFormat: "ISO",
+          ImageWSQRate: "0.75",
+        }).toString(),
+      });
 
-        if (response.ok) {
-          const result = await response.text();
-          const parser = new DOMParser();
-          const xmlDoc = parser.parseFromString(result, "text/xml");
+      if (response.ok) {
+        const result = await response.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(result, "text/xml");
 
-          const errorCode =
-            xmlDoc.getElementsByTagName("ErrorCode")[0]?.textContent;
+        const errorCode =
+          xmlDoc.getElementsByTagName("ErrorCode")[0]?.textContent;
 
-          if (errorCode === "0") {
-            // Successfully captured fingerprint
-            const templateData =
-              xmlDoc.getElementsByTagName("TemplateBase64")[0]?.textContent;
-            const imageData =
-              xmlDoc.getElementsByTagName("BMPBase64")[0]?.textContent;
+        if (errorCode === "0") {
+          // Successfully captured fingerprint
+          const templateData =
+            xmlDoc.getElementsByTagName("TemplateBase64")[0]?.textContent;
+          const imageData =
+            xmlDoc.getElementsByTagName("BMPBase64")[0]?.textContent;
 
-            setFingerprintData({
-              template: templateData,
-              image: imageData,
-              timestamp: new Date().toISOString(),
-            });
+          setFingerprintData({
+            template: templateData,
+            image: imageData,
+            timestamp: new Date().toISOString(),
+          });
 
-            if (imageData) {
-              setFingerprintImage(`data:image/bmp;base64,${imageData}`);
-            }
-
-            setScanningMessage("Fingerprint captured successfully!");
-            setIsListening(false); // Stop listening after successful capture
-
-            // Optional: Auto-clear the success message after a few seconds
-            setTimeout(() => setScanningMessage(""), 3000);
-
-            break; // Exit the listening loop
-          } else if (errorCode === "30" || errorCode === "31") {
-            // Timeout or no finger detected - continue listening
-            setScanningMessage("Waiting for finger placement...");
-            continue;
-          } else {
-            // Other error
-            console.error("Scanner error code:", errorCode);
-            setScanningMessage("Scanner error. Please try again.");
-            setIsListening(false);
-            break;
+          if (imageData) {
+            setFingerprintImage(`data:image/bmp;base64,${imageData}`);
           }
-        } else {
-          throw new Error("Failed to communicate with scanner");
-        }
-      } catch (error) {
-        console.error("Scanner communication error:", error);
-        setScanningMessage("Connection error. Please check scanner.");
-        setIsListening(false);
-        break;
-      }
 
-      // Small delay before next attempt to prevent overwhelming the scanner
-      await new Promise((resolve) => setTimeout(resolve, 500));
+          setScanningMessage("Fingerprint captured successfully!");
+          setIsListening(false);
+
+          setTimeout(() => setScanningMessage(""), 3000);
+        } else {
+          setScanningMessage(
+            `Scanner error (Code: ${errorCode}). Please try again.`
+          );
+          setIsListening(false);
+        }
+      } else {
+        throw new Error("Failed to communicate with scanner");
+      }
+    } catch (error) {
+      console.error("Scanner communication error:", error);
+      setScanningMessage("Connection error. Please check scanner.");
+      setIsListening(false);
     }
   };
 
@@ -310,28 +289,18 @@ const ProspectRegistration = () => {
           <div className="space-y-2">
             {!fingerprintData ? (
               <div>
-                {!isListening ? (
-                  <button
-                    type="button"
-                    onClick={startListening}
-                    disabled={scannerStatus !== "Connected"}
-                    className={`w-full p-3 rounded-md font-medium ${
-                      scannerStatus !== "Connected"
-                        ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                        : "bg-blue-600 text-white hover:bg-blue-700"
-                    }`}
-                  >
-                    Start Fingerprint Scanner
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={stopListening}
-                    className="w-full p-3 rounded-md font-medium bg-red-600 text-white hover:bg-red-700"
-                  >
-                    Stop Scanner
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={startListening}
+                  disabled={isListening || scannerStatus !== "Connected"}
+                  className={`w-full p-3 rounded-md font-medium ${
+                    isListening || scannerStatus !== "Connected"
+                      ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                      : "bg-blue-600 text-white hover:bg-blue-700"
+                  }`}
+                >
+                  {isListening ? "Scanning..." : "Capture Fingerprint"}
+                </button>
               </div>
             ) : (
               <button
