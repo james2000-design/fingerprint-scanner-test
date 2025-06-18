@@ -21,21 +21,24 @@ const ProspectRegistration = () => {
   const [fingerprintImage, setFingerprintImage] = useState<string | null>(null);
 
   // SecuGen WebAPI configuration
-  const WEBAPI_URL = "http://localhost:8080/SGIFPCapture";
+  const WEBAPI_URL = "https://localhost:8443/SGIFPCapture";
 
-  useEffect(() => {
-    // Check if SecuGen WebAPI Client is running
-    checkWebAPIStatus();
-  }, []);
+ 
 
   const checkWebAPIStatus = async () => {
     try {
-      const response = await fetch(`${WEBAPI_URL}/info`, {
+      const response = await fetch('/api/scanner', {
         method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: "Timeout=10000&Quality=50&licstr=your-license-key-here",
+       headers: {
+    "Content-Type": "application/x-www-form-urlencoded",
+  },
+ body: new URLSearchParams({
+ Timeout: "10000",
+  Quality: "50",
+  Licstr: "", 
+  TemplateFormat: "ISO", // <-- Capital T & F
+  ImageWSQRate: "0.75", 
+}).toString(),
       });
 
       if (response.ok) {
@@ -49,6 +52,11 @@ const ProspectRegistration = () => {
     }
   };
 
+   useEffect(() => {
+    // Check if SecuGen WebAPI Client is running
+    checkWebAPIStatus();
+  }, []);
+
   const captureFingerprint = async () => {
     if (scannerStatus !== "Connected") {
       alert(
@@ -60,17 +68,19 @@ const ProspectRegistration = () => {
     setIsScanning(true);
 
     try {
-      const response = await fetch(`${WEBAPI_URL}/capture`, {
+      const response = await fetch('/api/scanner', {
         method: "POST",
         headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
+         "Content-Type": "application/x-www-form-urlencoded",
         },
         body: new URLSearchParams({
-          Timeout: "10000",
-          Quality: "50",
-          licstr: "your-license-key-here", // Replace with your actual license
-          templateFormat: "ISO",
-        }),
+         Timeout: "10000",            
+  Quality: "50",
+  Licstr: "",
+  TemplateFormat: "ISO",
+  ImageWSQRate: "0.75",
+  AutoOn: "Enable",
+        }).toString(),
       });
 
       if (response.ok) {
@@ -301,3 +311,5 @@ const ProspectRegistration = () => {
 };
 
 export default ProspectRegistration;
+
+
