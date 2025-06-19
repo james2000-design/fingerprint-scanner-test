@@ -17,10 +17,9 @@ const ProspectRegistration = () => {
   } | null;
 
   const [fingerprintData, setFingerprintData] = useState<FingerprintData>(null);
-  const [isListening, setIsListening] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const [scannerStatus, setScannerStatus] = useState("Not Connected");
   const [fingerprintImage, setFingerprintImage] = useState<string | null>(null);
-  const [scanningMessage, setScanningMessage] = useState("");
 
   const checkWebAPIStatus = async () => {
     try {
@@ -30,29 +29,31 @@ const ProspectRegistration = () => {
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: new URLSearchParams({
-          Timeout: "1000",
+          Timeout: "10000",
           Quality: "50",
           Licstr: "",
-          TemplateFormat: "ISO",
+          TemplateFormat: "ISO", // <-- Capital T & F
           ImageWSQRate: "0.75",
         }).toString(),
       });
 
       if (response.ok) {
         setScannerStatus("Connected");
-        return true;
       } else {
         setScannerStatus("WebAPI Client Not Running");
-        return false;
       }
     } catch (error) {
       setScannerStatus("WebAPI Client Not Running");
       console.error("WebAPI not accessible:", error);
-      return false;
     }
   };
 
-  const startListening = async () => {
+  useEffect(() => {
+    // Check if SecuGen WebAPI Client is running
+    checkWebAPIStatus();
+  }, []);
+
+  const captureFingerprint = async () => {
     if (scannerStatus !== "Connected") {
       alert(
         "Please ensure SecuGen WebAPI Client is running and scanner is connected"
@@ -60,13 +61,8 @@ const ProspectRegistration = () => {
       return;
     }
 
-    setIsListening(true);
-    setScanningMessage("Place your finger on the scanner...");
+    setIsScanning(true);
 
-    // Start the continuous listening loop
-    listenForFingerprint();
-  };
-  const listenForFingerprint = async () => {
     try {
       const response = await fetch("/api/scanner", {
         method: "POST",
@@ -79,6 +75,7 @@ const ProspectRegistration = () => {
           Licstr: "",
           TemplateFormat: "ISO",
           ImageWSQRate: "0.75",
+          AutoOn: "Enable",
         }).toString(),
       });
 
@@ -87,11 +84,11 @@ const ProspectRegistration = () => {
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(result, "text/xml");
 
+        // Extract fingerprint data
         const errorCode =
           xmlDoc.getElementsByTagName("ErrorCode")[0]?.textContent;
 
         if (errorCode === "0") {
-          // Successfully captured fingerprint
           const templateData =
             xmlDoc.getElementsByTagName("TemplateBase64")[0]?.textContent;
           const imageData =
@@ -103,52 +100,31 @@ const ProspectRegistration = () => {
             timestamp: new Date().toISOString(),
           });
 
+          // Display fingerprint image
           if (imageData) {
             setFingerprintImage(`data:image/bmp;base64,${imageData}`);
           }
 
-          setScanningMessage("Fingerprint captured successfully!");
-          setIsListening(false);
-
-          setTimeout(() => setScanningMessage(""), 3000);
+          alert("Fingerprint captured successfully!");
         } else {
-          setScanningMessage(
-            `Scanner error (Code: ${errorCode}). Please try again.`
-          );
-          setIsListening(false);
+          alert("Failed to capture fingerprint. Please try again.");
         }
       } else {
         throw new Error("Failed to communicate with scanner");
       }
     } catch (error) {
-      console.error("Scanner communication error:", error);
-      setScanningMessage("Connection error. Please check scanner.");
-      setIsListening(false);
+      console.error("Capture error:", error);
+      alert("Error capturing fingerprint. Please check scanner connection.");
+    } finally {
+      setIsScanning(false);
     }
   };
-
-  useEffect(() => {
-    checkWebAPIStatus();
-  }, []);
-
-  // Cleanup effect to stop listening when component unmounts
-  useEffect(() => {
-    return () => {
-      setIsListening(false);
-    };
-  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
     });
-  };
-
-  const clearFingerprint = () => {
-    setFingerprintData(null);
-    setFingerprintImage(null);
-    setScanningMessage("");
   };
 
   const handleSubmit = async (e: { preventDefault: () => void }) => {
@@ -166,6 +142,7 @@ const ProspectRegistration = () => {
     };
 
     try {
+      // Send to your API endpoint
       const response = await fetch("/api/register-prospect", {
         method: "POST",
         headers: {
@@ -185,7 +162,6 @@ const ProspectRegistration = () => {
         });
         setFingerprintData(null);
         setFingerprintImage(null);
-        setScanningMessage("");
       } else {
         alert("Registration failed. Please try again.");
       }
@@ -286,51 +262,29 @@ const ProspectRegistration = () => {
             Fingerprint Capture
           </label>
 
-          <div className="space-y-2">
-            {!fingerprintData ? (
-              <div>
-                <button
-                  type="button"
-                  onClick={startListening}
-                  disabled={isListening || scannerStatus !== "Connected"}
-                  className={`w-full p-3 rounded-md font-medium ${
-                    isListening || scannerStatus !== "Connected"
-                      ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                      : "bg-blue-600 text-white hover:bg-blue-700"
-                  }`}
-                >
-                  {isListening ? "Scanning..." : "Capture Fingerprint"}
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={clearFingerprint}
-                className="w-full p-3 rounded-md font-medium bg-yellow-600 text-white hover:bg-yellow-700"
-              >
-                Clear & Recapture
-              </button>
-            )}
-
-            {scanningMessage && (
-              <div className="text-center p-2 bg-blue-50 rounded-md">
-                <p className="text-sm text-blue-700">{scanningMessage}</p>
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={captureFingerprint}
+            disabled={isScanning || scannerStatus !== "Connected"}
+            className={`w-full p-3 rounded-md font-medium ${
+              isScanning || scannerStatus !== "Connected"
+                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                : "bg-blue-600 text-white hover:bg-blue-700"
+            }`}
+          >
+            {isScanning ? "Scanning..." : "Capture Fingerprint"}
+          </button>
 
           {fingerprintImage && (
             <div className="mt-3 text-center">
               <p className="text-sm text-green-600 mb-2">
-                ✓ Fingerprint Captured Successfully
+                ✓ Fingerprint Captured
               </p>
               <Image
                 src={fingerprintImage}
                 alt="Captured Fingerprint"
                 className="mx-auto border border-gray-300 rounded"
                 style={{ maxWidth: "150px", maxHeight: "150px" }}
-                width={150}
-                height={150}
               />
             </div>
           )}
