@@ -1,337 +1,135 @@
-"use client";
-import Image from "next/image";
-import { useState, useEffect } from "react";
+'use client';
 
-const ProspectRegistration = () => {
-  const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-  });
+import React, { useState } from 'react';
+import Image from 'next/image';
+import ScanImage from '@/public/assets/images/images.png'
 
-  type FingerprintData = {
-    template: string | null;
-    image: string | null;
-    timestamp: string;
-  } | null;
+type FingerprintResult = {
+  ErrorCode: number;
+  SerialNumber: string;
+  ImageHeight: number;
+  ImageWidth: number;
+  ImageDPI: number;
+  ImageQuality: number;
+  NFIQ: number;
+  BMPBase64: string;
+  TemplateBase64: string;
+  WSQImageSize: number;
+  WSQImage: string;
+};
 
-  const [fingerprintData, setFingerprintData] = useState<FingerprintData>(null);
-  const [isScanning, setIsScanning] = useState(false);
-  const [scannerStatus, setScannerStatus] = useState("Not Connected");
-  const [fingerprintImage, setFingerprintImage] = useState<string | null>(null);
+const secugen_lic = ''; // Add your license if required
 
-  const checkWebAPIStatus = async () => {
+export default function FingerprintScanner() {
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [result, setResult] = useState<FingerprintResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const captureFP = async () => {
+    setError(null);
     try {
-      const response = await fetch("/api/scanner", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      const response = await fetch('https://localhost:8443/SGIFPCapture', {
+        method: 'POST',
         body: new URLSearchParams({
-          command: "GetWebAPIVersion", // Verify API connectivity
-        }).toString(),
+          Timeout: '10000',
+          Quality: '50',
+          licstr: secugen_lic,
+          templateFormat: 'ISO',
+          imageWSQRate: '0.75',
+        }),
       });
 
-      if (response.ok) {
-        const text = await response.text();
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(text, "text/xml");
-        const errorCode =
-          xmlDoc.getElementsByTagName("ErrorCode")[0]?.textContent;
-
-        setScannerStatus(
-          errorCode === "0" ? "Connected" : "Ready - Initialize Device"
-        );
-      } else {
-        setScannerStatus("WebAPI Client Not Running");
+      if (!response.ok) {
+        setError(`Error connecting to scanner: ${response.status}`);
+        return;
       }
-    } catch (error) {
-      console.error("Error checking WebAPI status:", error);
-      setScannerStatus("WebAPI Client Not Running");
-    }
-  };
 
-  const initializeScanner = async () => {
-    try {
-      const initResponse = await fetch("/api/scanner", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          command: "OpenDevice", // Explicit initialization
-          deviceName: "SGFingerBioExDevice", // Match your device model
-        }).toString(),
-      });
+      const data: FingerprintResult = await response.json();
 
-      if (!initResponse.ok) throw new Error("Initialization failed");
-      return true;
-    } catch (error) {
-      console.error("Device initialization error:", error);
-      return false;
-    }
-  };
-
-  useEffect(() => {
-    // Check if SecuGen WebAPI Client is running
-    checkWebAPIStatus();
-  }, []);
-
-  const captureFingerprint = async () => {
-    if (scannerStatus !== "Connected") {
-      alert(
-        "Please ensure SecuGen WebAPI Client is running and scanner is connected"
-      );
-      return;
-    }
-
-    setIsScanning(true);
-
-    try {
-      const initSuccess = await initializeScanner();
-      if (!initSuccess) throw new Error("Device initialization failed");
-
-      // 2. Capture fingerprint
-      const response = await fetch("/api/scanner", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          command: "Capture",
-          timeout: "20000", // Increased timeout (20s)
-          quality: "50",
-          templateFormat: "ISO", // Corrected case sensitivity
-          imageWSQRate: "0.75",
-          autoOn: "Enable",
-        }).toString(),
-      });
-
-      if (response.ok) {
-        const result = await response.text();
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(result, "text/xml");
-
-        // Extract fingerprint data
-        const errorCode =
-          xmlDoc.getElementsByTagName("ErrorCode")[0]?.textContent;
-
-        if (errorCode === "0") {
-          const templateData =
-            xmlDoc.getElementsByTagName("TemplateBase64")[0]?.textContent;
-          const imageData =
-            xmlDoc.getElementsByTagName("BMPBase64")[0]?.textContent;
-
-          setFingerprintData({
-            template: templateData,
-            image: imageData,
-            timestamp: new Date().toISOString(),
-          });
-
-          // Display fingerprint image
-          if (imageData) {
-            setFingerprintImage(`data:image/bmp;base64,${imageData}`);
-          }
-
-          alert("Fingerprint captured successfully!");
-
-          await fetch("/api/scanner", {
-            method: "POST",
-            body: new URLSearchParams({ command: "CloseDevice" }).toString(),
-          });
-        } else {
-          alert("Failed to capture fingerprint. Please try again.");
-        }
+      if (data.ErrorCode === 0) {
+        setImageSrc(`data:image/bmp;base64,${data.BMPBase64}`);
+        setResult(data);
       } else {
-        throw new Error("Failed to communicate with scanner");
+        setError(`Capture Error ${data.ErrorCode}: ${getErrorMessage(data.ErrorCode)}`);
       }
-    } catch (error) {
-      console.error("Capture error:", error);
-      alert("Error capturing fingerprint. Please check scanner connection.");
-    } finally {
-      setIsScanning(false);
+    } catch (err) {
+      setError('Could not connect to SGIBioSrv. Is it running on your machine?');
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
-  };
-
-  const handleSubmit = async (e: { preventDefault: () => void }) => {
-    e.preventDefault();
-
-    if (!fingerprintData) {
-      alert("Please capture fingerprint before submitting");
-      return;
-    }
-
-    const registrationData = {
-      ...formData,
-      fingerprint: fingerprintData,
-      registrationTime: new Date().toISOString(),
+  const getErrorMessage = (code: number): string => {
+    const errors: Record<number, string> = {
+      51: 'System file load failure',
+      52: 'Sensor chip initialization failed',
+      53: 'Device not found',
+      54: 'Fingerprint image capture timeout',
+      55: 'No device available',
+      56: 'Driver load failed',
+      57: 'Wrong image',
+      58: 'Lack of bandwidth',
+      59: 'Device busy',
+      60: 'Cannot get serial number of the device',
+      61: 'Unsupported device',
+      63: "SgIBioSrv didn't start",
     };
-
-    try {
-      // Send to your API endpoint
-      const response = await fetch("/api/register-prospect", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(registrationData),
-      });
-
-      if (response.ok) {
-        alert("Prospect registered successfully!");
-        // Reset form
-        setFormData({
-          firstName: "",
-          lastName: "",
-          email: "",
-          phone: "",
-        });
-        setFingerprintData(null);
-        setFingerprintImage(null);
-      } else {
-        alert("Registration failed. Please try again.");
-      }
-    } catch (error) {
-      console.error("Registration error:", error);
-      alert("Registration failed. Please try again.");
-    }
+    return errors[code] || 'Unknown error';
   };
 
   return (
-    <div className="max-w-md mx-auto mt-8 p-6 bg-white rounded-lg shadow-md">
-      <h2 className="text-2xl font-bold mb-6 text-center">
-        Prospect Registration
-      </h2>
+    <div className="max-w-3xl mx-auto p-6 bg-white shadow rounded">
+      <h2 className="text-xl font-semibold mb-4">SecuGen Fingerprint Scanner</h2>
 
-      {/* Scanner Status */}
-      <div className="mb-4 p-3 rounded-md bg-gray-50">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Scanner Status:</span>
-          <span
-            className={`text-sm font-medium ${
-              scannerStatus === "Connected" ? "text-green-600" : "text-red-600"
-            }`}
-          >
-            {scannerStatus}
-          </span>
+      
+
+      {error && (
+        <div className="mt-4 text-red-600">
+          <strong>Error:</strong> {error}
         </div>
-        {scannerStatus !== "Connected" && (
-          <button
-            onClick={checkWebAPIStatus}
-            className="mt-2 text-xs text-blue-600 hover:text-blue-800"
-          >
-            Retry Connection
-          </button>
-        )}
-      </div>
+      )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            First Name
-          </label>
-          <input
-            type="text"
-            name="firstName"
-            value={formData.firstName}
-            onChange={handleInputChange}
-            required
-            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
+      {imageSrc ? (
+  <div className="mt-6">
+    <Image
+      src={imageSrc}
+      alt="Fingerprint"
+      width={210}
+      height={300}
+      className="border"
+    />
+  </div>
+) : (
+  <Image
+    src={ScanImage}
+    alt="Placeholder"
+    width={210}
+    height={300}
+    className="border"
+  />
+)}
+
+<button
+        onClick={captureFP}
+        className="px-4 py-2 bg-blue-600 text-white flex justify-center rounded hover:bg-blue-700"
+      >
+        Click to Scan
+      </button>
+      {result && (
+        <div className="mt-6 overflow-auto">
+          <table className="table-auto border-collapse border border-gray-400 text-sm">
+            <tbody>
+              <tr><td className="border px-2 py-1">Serial Number</td><td className="border px-2 py-1">{result.SerialNumber}</td></tr>
+              <tr><td className="border px-2 py-1">Image Height</td><td className="border px-2 py-1">{result.ImageHeight}</td></tr>
+              <tr><td className="border px-2 py-1">Image Width</td><td className="border px-2 py-1">{result.ImageWidth}</td></tr>
+              <tr><td className="border px-2 py-1">Image DPI</td><td className="border px-2 py-1">{result.ImageDPI}</td></tr>
+              <tr><td className="border px-2 py-1">Image Quality</td><td className="border px-2 py-1">{result.ImageQuality}</td></tr>
+              <tr><td className="border px-2 py-1">NFIQ</td><td className="border px-2 py-1">{result.NFIQ}</td></tr>
+              <tr><td className="border px-2 py-1">Template</td><td className="border px-2 py-1"><textarea rows={4} cols={40} defaultValue={result.TemplateBase64}></textarea></td></tr>
+              <tr><td className="border px-2 py-1">WSQ Image Size</td><td className="border px-2 py-1">{result.WSQImageSize}</td></tr>
+              <tr><td className="border px-2 py-1">WSQ Image</td><td className="border px-2 py-1"><textarea rows={4} cols={40} defaultValue={result.WSQImage}></textarea></td></tr>
+            </tbody>
+          </table>
         </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Last Name
-          </label>
-          <input
-            type="text"
-            name="lastName"
-            value={formData.lastName}
-            onChange={handleInputChange}
-            required
-            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Email
-          </label>
-          <input
-            type="email"
-            name="email"
-            value={formData.email}
-            onChange={handleInputChange}
-            required
-            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Phone
-          </label>
-          <input
-            type="tel"
-            name="phone"
-            value={formData.phone}
-            onChange={handleInputChange}
-            required
-            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-
-        {/* Fingerprint Capture Section */}
-        <div className="border-t pt-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Fingerprint Capture
-          </label>
-
-          <button
-            type="button"
-            onClick={captureFingerprint}
-            disabled={isScanning || scannerStatus !== "Connected"}
-            className={`w-full p-3 rounded-md font-medium ${
-              isScanning || scannerStatus !== "Connected"
-                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                : "bg-blue-600 text-white hover:bg-blue-700"
-            }`}
-          >
-            {isScanning ? "Scanning..." : "Capture Fingerprint"}
-          </button>
-
-          {fingerprintImage && (
-            <div className="mt-3 text-center">
-              <p className="text-sm text-green-600 mb-2">
-                ✓ Fingerprint Captured
-              </p>
-              <Image
-                src={fingerprintImage}
-                alt="Captured Fingerprint"
-                className="mx-auto border border-gray-300 rounded"
-                style={{ maxWidth: "150px", maxHeight: "150px" }}
-              />
-            </div>
-          )}
-        </div>
-
-        <button
-          type="submit"
-          disabled={!fingerprintData}
-          className={`w-full p-3 rounded-md font-medium ${
-            !fingerprintData
-              ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-              : "bg-green-600 text-white hover:bg-green-700"
-          }`}
-        >
-          Register Prospect
-        </button>
-      </form>
+      )}
     </div>
   );
-};
-
-export default ProspectRegistration;
+}
