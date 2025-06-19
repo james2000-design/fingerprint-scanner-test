@@ -25,26 +25,47 @@ const ProspectRegistration = () => {
     try {
       const response = await fetch("/api/scanner", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
-          Timeout: "10000",
-          Quality: "50",
-          Licstr: "",
-          TemplateFormat: "ISO", // <-- Capital T & F
-          ImageWSQRate: "0.75",
+          command: "GetWebAPIVersion", // Verify API connectivity
         }).toString(),
       });
 
       if (response.ok) {
-        setScannerStatus("Connected");
+        const text = await response.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(text, "text/xml");
+        const errorCode =
+          xmlDoc.getElementsByTagName("ErrorCode")[0]?.textContent;
+
+        setScannerStatus(
+          errorCode === "0" ? "Connected" : "Ready - Initialize Device"
+        );
       } else {
         setScannerStatus("WebAPI Client Not Running");
       }
     } catch (error) {
+      console.error("Error checking WebAPI status:", error);
       setScannerStatus("WebAPI Client Not Running");
-      console.error("WebAPI not accessible:", error);
+    }
+  };
+
+  const initializeScanner = async () => {
+    try {
+      const initResponse = await fetch("/api/scanner", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          command: "OpenDevice", // Explicit initialization
+          deviceName: "SGFingerBioExDevice", // Match your device model
+        }).toString(),
+      });
+
+      if (!initResponse.ok) throw new Error("Initialization failed");
+      return true;
+    } catch (error) {
+      console.error("Device initialization error:", error);
+      return false;
     }
   };
 
@@ -64,18 +85,20 @@ const ProspectRegistration = () => {
     setIsScanning(true);
 
     try {
+      const initSuccess = await initializeScanner();
+      if (!initSuccess) throw new Error("Device initialization failed");
+
+      // 2. Capture fingerprint
       const response = await fetch("/api/scanner", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
-          Timeout: "10000",
-          Quality: "50",
-          Licstr: "",
-          TemplateFormat: "ISO",
-          ImageWSQRate: "0.75",
-          AutoOn: "Enable",
+          command: "Capture",
+          timeout: "20000", // Increased timeout (20s)
+          quality: "50",
+          templateFormat: "ISO", // Corrected case sensitivity
+          imageWSQRate: "0.75",
+          autoOn: "Enable",
         }).toString(),
       });
 
@@ -106,6 +129,11 @@ const ProspectRegistration = () => {
           }
 
           alert("Fingerprint captured successfully!");
+
+          await fetch("/api/scanner", {
+            method: "POST",
+            body: new URLSearchParams({ command: "CloseDevice" }).toString(),
+          });
         } else {
           alert("Failed to capture fingerprint. Please try again.");
         }
